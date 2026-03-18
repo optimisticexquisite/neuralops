@@ -1,7 +1,7 @@
 import argparse
 from dataclasses import asdict, dataclass
 from pathlib import Path
-
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -57,6 +57,7 @@ def train(config: TrainConfig) -> None:
     np.random.seed(config.seed)
 
     snapshots = load_snapshots(config.data_path)
+    print(f"Loaded snapshots: {snapshots.shape} from {config.data_path}")
     num_frames = snapshots.shape[0]
     split = int(num_frames * config.train_ratio)
 
@@ -82,10 +83,10 @@ def train(config: TrainConfig) -> None:
     best_val = float("inf")
     best_state = None
 
-    for epoch in range(config.epochs):
+    for epoch in tqdm(range(config.epochs), desc="Training"):
         model.train()
         train_loss = 0.0
-        for x, y in train_loader:
+        for x, y in tqdm(train_loader, desc="Training batches", leave=False):
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             pred = model(x)

@@ -13,7 +13,7 @@ from fno2d import FNO2d
 @dataclass
 class TrainConfig:
     data_path: str = "omega_snapshots.npy"
-    output_path: str = "navstokes/fno_navstokes.pt"
+    output_path: str = "fno_navstokes.pt"
     stride: int = 4
     train_ratio: float = 0.85
     batch_size: int = 4
@@ -135,7 +135,7 @@ def train(config: TrainConfig) -> None:
 def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description="Train FNO for Navier-Stokes vorticity rollouts")
     parser.add_argument("--data-path", default="omega_snapshots.npy")
-    parser.add_argument("--output-path", default="navstokes/fno_navstokes.pt")
+    parser.add_argument("--output-path", default="fno_navstokes.pt")
     parser.add_argument("--stride", type=int, default=4, help="Predict t+stride from t")
     parser.add_argument("--train-ratio", type=float, default=0.85)
     parser.add_argument("--batch-size", type=int, default=4)

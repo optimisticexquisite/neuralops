@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Subset
 import torchvision
 import torchvision.transforms as T
 import matplotlib.cm as cm
@@ -151,13 +151,28 @@ def build_resnet50_finetune():
 def regression_mse_loss(pred, target):
     return nn.functional.mse_loss(pred, target)
 
-def train_model(model, dataloader, optimizer, device, num_epochs=10, scheduler=None):
+@torch.no_grad()
+def evaluate_model(model, dataloader, device):
+    model.eval()
+    criterion = regression_mse_loss
+    total_loss = 0.0
+    num_batches = 0
+    for images, targets in dataloader:
+        images, targets = images.to(device), targets.to(device)
+        outputs = model(images)
+        loss = criterion(outputs, targets)
+        total_loss += loss.item()
+        num_batches += 1
+    return total_loss / max(num_batches, 1)
+
+
+def train_model(model, train_loader, val_loader, optimizer, device, num_epochs=10, scheduler=None):
     model.to(device)
-    model.train()
     criterion = regression_mse_loss
     for epoch in tqdm(range(num_epochs)):
+        model.train()
         total_loss = 0.0
-        for batch_idx, (images, targets) in tqdm(enumerate(dataloader)):
+        for batch_idx, (images, targets) in tqdm(enumerate(train_loader), total=len(train_loader), leave=False):
             images, targets = images.to(device), targets.to(device)
             optimizer.zero_grad()
             outputs = model(images)  # shape (B,2)
@@ -165,10 +180,12 @@ def train_model(model, dataloader, optimizer, device, num_epochs=10, scheduler=N
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        avg_loss = total_loss / len(dataloader)
+
+        avg_loss = total_loss / max(len(train_loader), 1)
+        val_loss = evaluate_model(model, val_loader, device)
         if scheduler:
-            scheduler.step(avg_loss)
-        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}")
+            scheduler.step(val_loss)
+        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_loss:.4f}, Val Loss: {val_loss:.4f}")
 
 # ===========================
 # 4. Main Function
@@ -181,10 +198,33 @@ def main():
         T.Normalize(mean=[0.485, 0.456, 0.406],
                     std=[0.229, 0.224, 0.225])
     ])
-    dataset = TurbulenceRGBDataset(npz_file='centered_turbulent_swimmers_1.npz',
-                                   transform=transform,
-                                   augment=True)
-    dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=32)
+    seed = 0
+    val_fraction = 0.2
+    train_limit = 8000
+    val_limit = 200
+
+    train_dataset_full = TurbulenceRGBDataset(
+        npz_file='centered_turbulent_swimmers_1.npz',
+        transform=transform,
+        augment=True,
+    )
+    val_dataset_full = TurbulenceRGBDataset(
+        npz_file='centered_turbulent_swimmers_1.npz',
+        transform=transform,
+        augment=False,
+    )
+    num_samples = len(train_dataset_full)
+    num_val = max(1, int(round(val_fraction * num_samples)))
+    num_train = num_samples - num_val
+    rng = np.random.default_rng(seed)
+    indices = rng.permutation(num_samples)
+    train_indices = indices[: min(num_train, train_limit)].tolist()
+    val_indices = indices[num_train : num_train + min(num_val, val_limit)].tolist()
+
+    train_dataset = Subset(train_dataset_full, train_indices)
+    val_dataset = Subset(val_dataset_full, val_indices)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=32)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=32)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = build_resnet50_finetune()
@@ -192,7 +232,8 @@ def main():
     # Learning rate scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
     
-    train_model(model, dataloader, optimizer, device, num_epochs=200, scheduler=scheduler)
+    print(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
+    train_model(model, train_loader, val_loader, optimizer, device, num_epochs=200, scheduler=scheduler)
     
     torch.save(model.state_dict(), 'resnet50_2d_regression.pth')
     print("Saved model as resnet50_2d_regression.pth")

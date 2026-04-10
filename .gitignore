@@ -6,3 +6,6 @@ neuraloperator/
 *.gif
 *.mp4
 *.h5
+resnet50_2d_regression.pth
+neuralself/data/NavierStokes_V1e-3_N5000_T50.mat
+*.pyc
